@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpticNetworkSim</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>OpticNetworkSim</h1>
+      <span>Simulador de Rede Óptica Corporativa · Ford-Fulkerson &amp; Corte Mínimo</span>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-reset-fibers" type="button" class="btn btn-secondary">Restaurar Fibras</button>
+      <button id="btn-reset-seed" type="button" class="btn btn-ghost">Resetar Rede (10 nós)</button>
+    </div>
+  </header>
+
+  <div id="status-msg" class="status-bar" role="status"></div>
+
+  <section class="kpi-strip">
+    <div class="kpi">
+      <span class="kpi-title">Fluxo Máximo</span>
+      <strong id="m-flow" class="kpi-num">0 Gbps</strong>
+    </div>
+    <div class="kpi">
+      <span class="kpi-title">Nominal Base</span>
+      <strong id="m-baseline" class="kpi-num">0 Gbps</strong>
+    </div>
+    <div class="kpi">
+      <span class="kpi-title">Resiliência</span>
+      <strong id="m-resilience" class="kpi-num">0%</strong>
+    </div>
+    <div class="kpi">
+      <span class="kpi-title">Corte Mínimo</span>
+      <strong id="m-mincut" class="kpi-num">0 Gbps</strong>
+    </div>
+  </section>
+
+  <main class="main-grid">
+    <section class="panel graph-card">
+      <div class="graph-head">
+        <div class="legend">
+          <span><i class="dot ok"></i>Ativa</span>
+          <span><i class="dot broken"></i>Rompida</span>
+          <span><i class="dot cut"></i>Corte Mínimo</span>
+        </div>
+        <span class="help-text">Arraste os dispositivos · Clique na fibra para romper/restaurar</span>
+      </div>
+
+      <svg id="graph-svg" viewBox="0 0 900 420" aria-label="Grafo da rede de fibra óptica"></svg>
+    </section>
+
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Origem e Destino</h2>
+        <form id="form-endpoints" class="form-stack">
+          <div class="form-row-2">
+            <label>
+              <span>Origem (S)</span>
+              <select id="sel-source"></select>
+            </label>
+            <label>
+              <span>Destino (T)</span>
+              <select id="sel-sink"></select>
+            </label>
+          </div>
+          <div class="form-row-2">
+            <button type="submit" class="btn btn-primary">Aplicar</button>
+            <button id="btn-recalc-base" type="button" class="btn btn-ghost">Definir Base</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Adicionar Dispositivo</h2>
+        <form id="form-node" class="form-stack">
+          <div class="form-row-2">
+            <input id="node-id" type="text" placeholder="ID (ex.: D11)" required />
+            <input id="node-sector" type="text" placeholder="Setor (ex.: 2º Andar)" />
+          </div>
+          <input id="node-name" type="text" placeholder="Nome (ex.: Switch Rack B)" required />
+          <button type="submit" class="btn btn-primary">Adicionar Nó</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Adicionar Fibra</h2>
+        <form id="form-link" class="form-stack">
+          <div class="form-row-2">
+            <input id="link-id" type="text" placeholder="ID (ex.: F16)" required />
+            <input id="link-cap" type="number" min="0" step="1" placeholder="Capacidade (Gbps)" required />
+          </div>
+          <div class="form-row-2">
+            <select id="link-source" required></select>
+            <select id="link-target" required></select>
+          </div>
+          <button type="submit" class="btn btn-primary">Adicionar Fibra</button>
+        </form>
+      </section>
+    </aside>
+  </main>
+
+  <section class="bottom-grid">
+    <section class="panel">
+      <h2>Dispositivos (<span id="count-nodes">0</span>)</h2>
+      <div class="table-box">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Dispositivo</th>
+              <th>Setor</th>
+              <th>Papel</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody-nodes"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Fibras Ópticas (<span id="count-links">0</span>)</h2>
+      <div class="table-box">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Ligação</th>
+              <th>Fluxo / Cap.</th>
+              <th>Estado</th>
+              <th>Corte</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-links"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
