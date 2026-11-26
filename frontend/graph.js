@@ -1,10 +1,12 @@
 ﻿import { fiberLabels, fiberState, format } from "./flow.js";
 
 const seedPositions = new Map(Object.entries({
-  D1: [62, 188], D2: [214, 62], D3: [214, 188], D4: [214, 314],
-  D5: [428, 190], D6: [428, 62], D7: [428, 314], D8: [640, 116],
-  D9: [756, 250], D10: [858, 162]
+  D1: [60, 220], D2: [255, 70], D3: [255, 220], D4: [255, 380],
+  D5: [500, 350], D6: [500, 70], D7: [500, 200], D8: [735, 150],
+  D9: [935, 270], D10: [1100, 270]
 }));
+const graphWidth = 1160;
+const graphHeight = 490;
 
 function element(tag, attributes, content) {
   const item = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -17,13 +19,14 @@ export function drawGraph(svg, state, selectFiber) {
   const extra = state.nodes.filter(node => !seedPositions.has(node.id));
   const positions = new Map(seedPositions);
   extra.forEach((node, index) => positions.set(node.id, [
-    80 + index % 6 * 150, 420 + Math.floor(index / 6) * 88
+    80 + index % 6 * 195, graphHeight + 42 + Math.floor(index / 6) * 110
   ]));
-  svg.setAttribute("viewBox", `0 0 920 ${extra.length ? 480 + Math.floor((extra.length - 1) / 6) * 88 : 402}`);
+  svg.setAttribute("viewBox", `0 0 ${graphWidth} ${graphHeight + Math.ceil(extra.length / 6) * 110}`);
 
   const defs = element("defs", {});
   for (const name of Object.keys(fiberLabels)) {
-    const marker = element("marker", { id: `arrow-${name}`, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 5, markerHeight: 5, orient: "auto" });
+    const marker = element("marker", { id: `arrow-${name}`, viewBox: "0 0 10 10", refX: 9, refY: 5,
+      markerUnits: "userSpaceOnUse", markerWidth: 14, markerHeight: 14, orient: "auto" });
     marker.append(element("path", { d: "M0 0L10 5L0 10Z", class: name }));
     defs.append(marker);
   }
@@ -44,7 +47,9 @@ export function drawGraph(svg, state, selectFiber) {
       const ux = (x2 - x1) / length;
       const uy = (y2 - y1) / length;
       const direction = link.source < link.target ? 1 : -1;
-      const bend = (index - (pair.length - 1) / 2) * 44 * direction;
+      // A ligação direta entre o terceiro andar e o storage contorna os nós centrais.
+      const bypass = link.source === "D4" && link.target === "D8" ? 310 : 0;
+      const bend = bypass + (index - (pair.length - 1) / 2) * 85 * direction;
       const cx = (x1 + x2) / 2 - uy * bend;
       const cy = (y1 + y2) / 2 + ux * bend;
       const startDistance = Math.hypot(cx - x1, cy - y1);
@@ -60,7 +65,8 @@ export function drawGraph(svg, state, selectFiber) {
       group.append(
         element("path", { d, class: "hit" }),
         element("path", { d, class: "line", "marker-end": `url(#arrow-${name})` }),
-        element("text", { x: (sx + 2 * cx + ex) / 4, y: (sy + 2 * cy + ey) / 4 - 5 }, link.id)
+        element("text", { x: (sx + 2 * cx + ex) / 4, y: (sy + 2 * cy + ey) / 4 - 8 },
+          `${link.id} · ${format(link.flow)}/${format(link.capacity)}`)
       );
       group.addEventListener("click", () => selectFiber(link.id));
       group.addEventListener("keydown", event => {

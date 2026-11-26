@@ -8,46 +8,51 @@
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header class="topbar"><div class="shell bar">
-    <strong class="brand"><span aria-hidden="true">⌘</span> OpticNetworkSim</strong>
-    <span id="connection">Conectando à API…</span>
-  </div></header>
   <main class="shell">
     <header class="intro">
-      <div><h1>Simulador de rede óptica</h1><p>Explore como o fluxo muda quando uma fibra é rompida ou restaurada.</p></div>
+      <div><h1>OpticNetworkSim</h1></div>
       <button id="reload" type="button">Recarregar dados</button>
     </header>
-    <p id="status" role="status"></p>
     <fieldset id="workspace" disabled aria-label="Simulação da rede">
-      <form id="endpoints" class="panel endpoints">
-        <label>Origem<select name="source" id="source" required></select></label>
-        <label>Destino<select name="sink" id="sink" required></select></label>
-        <button class="primary">Aplicar trajeto</button>
-      </form>
-      <section class="metrics" aria-label="Indicadores">
-        <article class="panel metric featured"><h2>Fluxo máximo</h2><p><strong id="flow">—</strong> Gbps</p><small id="trajectory">Ford–Fulkerson</small></article>
-        <article class="panel metric"><h2>Capacidade do corte mínimo</h2><p><strong id="cut-capacity">—</strong> Gbps</p><small id="cut-count">Fibras que limitam o fluxo</small></article>
-        <article class="panel metric"><h2>Fluxo de referência</h2><p><strong id="baseline">—</strong> Gbps</p><small id="comparison">Comparação com o fluxo atual</small></article>
-      </section>
-      <div class="analysis">
-        <section class="panel map">
-          <div class="map-header"><h2>Mapa da rede</h2><span id="counts"></span></div>
-          <p>Selecione uma fibra para ver seu fluxo ou simular uma falha.</p>
-          <ul class="legend">
-            <li class="flowing">Com fluxo</li><li class="idle">Sem fluxo</li><li class="saturated">Saturada</li>
-            <li class="cut">Corte mínimo</li><li class="broken">Rompida</li>
-          </ul>
-          <div class="graph-scroll"><svg id="graph" viewBox="0 0 920 402" role="group" aria-label="Mapa interativo da rede dirigida"></svg></div>
-          <div class="fiber">
-            <label>Fibra<select id="fiber-select"></select></label>
-            <div id="fiber-status"></div>
-            <button id="toggle" type="button" hidden></button>
-          </div>
+      <div id="presentation">
+        <form id="endpoints" class="panel endpoints">
+          <label>Origem<select name="source" id="source" required></select></label>
+          <label>Destino<select name="sink" id="sink" required></select></label>
+          <button class="primary" type="submit">Calcular fluxo</button>
+        </form>
+        <p id="status" role="status"></p>
+        <section class="metrics" aria-label="Indicadores">
+          <article class="panel metric featured"><h2>Fluxo máximo</h2><p><strong id="flow">—</strong> Gbps</p><small id="trajectory">Ford–Fulkerson</small></article>
+          <article class="panel metric"><h2>Capacidade do corte mínimo</h2><p><strong id="cut-capacity">—</strong> Gbps</p><small id="cut-count">Fibras que limitam o fluxo</small></article>
+          <article class="panel metric"><h2>Fluxo de referência</h2><p><strong id="baseline">—</strong> Gbps</p><small id="comparison">Comparação com o fluxo atual</small></article>
         </section>
-        <aside class="insights" aria-label="Análise do fluxo">
-          <section class="panel insight"><h2>Caminhos do fluxo</h2><p>Selecione uma rota para realçar suas fibras.</p><div id="paths" class="items"></div></section>
-          <section class="panel insight"><h2>Fibras do corte mínimo</h2><p>A soma das capacidades dessas fibras limita o fluxo.</p><div id="cut-links" class="items"></div></section>
-        </aside>
+        <div class="analysis">
+          <section class="panel map">
+            <div class="map-header">
+              <h2>Mapa da rede</h2>
+              <div class="map-tools">
+                <span id="counts"></span>
+                <button id="fullscreen" type="button" aria-pressed="false">Tela cheia</button>
+              </div>
+            </div>
+            <p>Selecione uma fibra para ver seu fluxo ou simular uma falha.</p>
+            <ul class="legend">
+              <li class="flowing">Com fluxo</li><li class="idle">Sem fluxo</li><li class="saturated">Saturada</li>
+              <li class="cut">Corte mínimo</li><li class="broken">Rompida</li>
+            </ul>
+            <div class="graph-scroll"><svg id="graph" viewBox="0 0 1160 490" role="group" aria-label="Mapa interativo da rede dirigida"></svg></div>
+            <p class="graph-key">Rótulos das fibras em fluxo/capacidade (Gbps).</p>
+            <div class="fiber">
+              <label>Fibra<select id="fiber-select"></select></label>
+              <div id="fiber-status"></div>
+              <button id="toggle" type="button" hidden></button>
+            </div>
+          </section>
+          <aside class="insights" aria-label="Análise do fluxo">
+            <section class="panel insight"><h2>Caminhos do fluxo</h2><p>Selecione uma rota para realçar suas fibras.</p><div id="paths" class="items"></div></section>
+            <section class="panel insight"><h2>Fibras do corte mínimo</h2><p>A soma das capacidades dessas fibras limita o fluxo.</p><div id="cut-links" class="items"></div></section>
+          </aside>
+        </div>
       </div>
       <div class="actions"><button id="restore" type="button">Restaurar todas as fibras</button></div>
       <details class="panel settings">
@@ -69,7 +74,8 @@
             <button>Adicionar fibra</button>
           </form>
         </div>
-        <h2>Dispositivos</h2><ul id="nodes" class="inventory"></ul>
+        <h2 id="devices-title">Dispositivos</h2>
+        <ul id="nodes" class="inventory" tabindex="0" aria-labelledby="devices-title"></ul>
         <h2>Fibras</h2><ul id="links" class="inventory"></ul>
         <div class="actions"><button id="reference" type="button">Salvar fluxo atual como referência</button><button id="reset" type="button">Restaurar cenário inicial</button></div>
       </details>

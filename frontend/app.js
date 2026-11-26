@@ -6,6 +6,8 @@ const byId = id => document.getElementById(id);
 const workspace = byId("workspace");
 const dialog = byId("capacity-dialog");
 const capacityForm = byId("edit-capacity");
+const presentation = byId("presentation");
+const fullscreen = byId("fullscreen");
 const linkUrl = id => `/links/${encodeURIComponent(id)}`;
 const connection = link => `${link.source} → ${link.target}`;
 
@@ -40,11 +42,9 @@ async function request(path, method = "GET", body, message = "") {
     state = next;
     if (method !== "GET") selectedPath = undefined;
     render();
-    byId("connection").textContent = "API conectada";
     status(message);
     return true;
   } catch (error) {
-    if (error instanceof TypeError) byId("connection").textContent = "API indisponível";
     status(error instanceof TypeError ? `Confira se o back-end está rodando em ${API} e recarregue os dados.` : error.message, true);
     return false;
   } finally {
@@ -213,4 +213,36 @@ byId("reset").onclick = () => {
   }
 };
 byId("reload").onclick = () => request("/state");
+
+function syncFullscreen() {
+  const active = document.fullscreenElement === presentation || presentation.classList.contains("presentation-expanded");
+  fullscreen.textContent = active ? "Sair da tela cheia" : "Tela cheia";
+  fullscreen.setAttribute("aria-pressed", String(active));
+}
+
+fullscreen.addEventListener("click", async () => {
+  if (document.fullscreenElement === presentation) {
+    await document.exitFullscreen();
+  } else if (presentation.classList.contains("presentation-expanded")) {
+    presentation.classList.remove("presentation-expanded");
+  } else {
+    try {
+      await presentation.requestFullscreen();
+    } catch {
+      // Mantém o modo de apresentação disponível em navegadores que bloqueiam a tela cheia.
+      presentation.classList.add("presentation-expanded");
+    }
+  }
+  syncFullscreen();
+  fullscreen.focus({ preventScroll: true });
+});
+
+document.addEventListener("fullscreenchange", syncFullscreen);
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !presentation.classList.contains("presentation-expanded")) return;
+  presentation.classList.remove("presentation-expanded");
+  syncFullscreen();
+  fullscreen.focus({ preventScroll: true });
+});
+
 request("/state");
