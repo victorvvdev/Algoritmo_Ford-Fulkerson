@@ -1,147 +1,87 @@
-<!DOCTYPE html>
+﻿<!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OpticNetworkSim</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpticNetworkSim · Simulador de rede</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <h1>OpticNetworkSim</h1>
-      <span>Simulador de Rede Óptica Corporativa · Ford-Fulkerson &amp; Corte Mínimo</span>
-    </div>
-    <div class="topbar-actions">
-      <button id="btn-reset-fibers" type="button" class="btn btn-secondary">Restaurar Fibras</button>
-      <button id="btn-reset-seed" type="button" class="btn btn-ghost">Resetar Rede (10 nós)</button>
-    </div>
-  </header>
-
-  <div id="status-msg" class="status-bar" role="status"></div>
-
-  <section class="kpi-strip">
-    <div class="kpi">
-      <span class="kpi-title">Fluxo Máximo</span>
-      <strong id="m-flow" class="kpi-num">0 Gbps</strong>
-    </div>
-    <div class="kpi">
-      <span class="kpi-title">Nominal Base</span>
-      <strong id="m-baseline" class="kpi-num">0 Gbps</strong>
-    </div>
-    <div class="kpi">
-      <span class="kpi-title">Resiliência</span>
-      <strong id="m-resilience" class="kpi-num">0%</strong>
-    </div>
-    <div class="kpi">
-      <span class="kpi-title">Corte Mínimo</span>
-      <strong id="m-mincut" class="kpi-num">0 Gbps</strong>
-    </div>
-  </section>
-
-  <main class="main-grid">
-    <section class="panel graph-card">
-      <div class="graph-head">
-        <div class="legend">
-          <span><i class="dot ok"></i>Ativa</span>
-          <span><i class="dot broken"></i>Rompida</span>
-          <span><i class="dot cut"></i>Corte Mínimo</span>
+  <header class="topbar"><div class="shell bar">
+    <strong class="brand"><span aria-hidden="true">⌘</span> OpticNetworkSim</strong>
+    <span id="connection">Conectando à API…</span>
+  </div></header>
+  <main class="shell">
+    <header class="intro">
+      <div><h1>Simulador de rede óptica</h1><p>Explore como o fluxo muda quando uma fibra é rompida ou restaurada.</p></div>
+      <button id="reload" type="button">Recarregar dados</button>
+    </header>
+    <p id="status" role="status"></p>
+    <fieldset id="workspace" disabled aria-label="Simulação da rede">
+      <form id="endpoints" class="panel endpoints">
+        <label>Origem<select name="source" id="source" required></select></label>
+        <label>Destino<select name="sink" id="sink" required></select></label>
+        <button class="primary">Aplicar trajeto</button>
+      </form>
+      <section class="metrics" aria-label="Indicadores">
+        <article class="panel metric featured"><h2>Fluxo máximo</h2><p><strong id="flow">—</strong> Gbps</p><small id="trajectory">Ford–Fulkerson</small></article>
+        <article class="panel metric"><h2>Capacidade do corte mínimo</h2><p><strong id="cut-capacity">—</strong> Gbps</p><small id="cut-count">Fibras que limitam o fluxo</small></article>
+        <article class="panel metric"><h2>Fluxo de referência</h2><p><strong id="baseline">—</strong> Gbps</p><small id="comparison">Comparação com o fluxo atual</small></article>
+      </section>
+      <div class="analysis">
+        <section class="panel map">
+          <div class="map-header"><h2>Mapa da rede</h2><span id="counts"></span></div>
+          <p>Selecione uma fibra para ver seu fluxo ou simular uma falha.</p>
+          <ul class="legend">
+            <li class="flowing">Com fluxo</li><li class="idle">Sem fluxo</li><li class="saturated">Saturada</li>
+            <li class="cut">Corte mínimo</li><li class="broken">Rompida</li>
+          </ul>
+          <div class="graph-scroll"><svg id="graph" viewBox="0 0 920 402" role="group" aria-label="Mapa interativo da rede dirigida"></svg></div>
+          <div class="fiber">
+            <label>Fibra<select id="fiber-select"></select></label>
+            <div id="fiber-status"></div>
+            <button id="toggle" type="button" hidden></button>
+          </div>
+        </section>
+        <aside class="insights" aria-label="Análise do fluxo">
+          <section class="panel insight"><h2>Caminhos do fluxo</h2><p>Selecione uma rota para realçar suas fibras.</p><div id="paths" class="items"></div></section>
+          <section class="panel insight"><h2>Fibras do corte mínimo</h2><p>A soma das capacidades dessas fibras limita o fluxo.</p><div id="cut-links" class="items"></div></section>
+        </aside>
+      </div>
+      <div class="actions"><button id="restore" type="button">Restaurar todas as fibras</button></div>
+      <details class="panel settings">
+        <summary>Editar rede e cenário</summary>
+        <div class="editors">
+          <form id="add-node">
+            <h2>Novo dispositivo</h2>
+            <label>ID<input name="id" required maxlength="30"></label>
+            <label>Nome<input name="name" required maxlength="80"></label>
+            <label>Setor<input name="sector" maxlength="80"></label>
+            <button>Adicionar dispositivo</button>
+          </form>
+          <form id="add-link">
+            <h2>Nova fibra</h2>
+            <label>ID<input name="id" required maxlength="30"></label>
+            <label>Origem<select name="source" id="link-source" required></select></label>
+            <label>Destino<select name="target" id="link-target" required></select></label>
+            <label>Capacidade (Gbps)<input name="capacity" type="number" min="0" step="any" required></label>
+            <button>Adicionar fibra</button>
+          </form>
         </div>
-        <span class="help-text">Arraste os dispositivos · Clique na fibra para romper/restaurar</span>
-      </div>
-
-      <svg id="graph-svg" viewBox="0 0 900 420" aria-label="Grafo da rede de fibra óptica"></svg>
-    </section>
-
-    <aside class="sidebar">
-      <section class="panel">
-        <h2>Origem e Destino</h2>
-        <form id="form-endpoints" class="form-stack">
-          <div class="form-row-2">
-            <label>
-              <span>Origem (S)</span>
-              <select id="sel-source"></select>
-            </label>
-            <label>
-              <span>Destino (T)</span>
-              <select id="sel-sink"></select>
-            </label>
-          </div>
-          <div class="form-row-2">
-            <button type="submit" class="btn btn-primary">Aplicar</button>
-            <button id="btn-recalc-base" type="button" class="btn btn-ghost">Definir Base</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="panel">
-        <h2>Adicionar Dispositivo</h2>
-        <form id="form-node" class="form-stack">
-          <div class="form-row-2">
-            <input id="node-id" type="text" placeholder="ID (ex.: D11)" required />
-            <input id="node-sector" type="text" placeholder="Setor (ex.: 2º Andar)" />
-          </div>
-          <input id="node-name" type="text" placeholder="Nome (ex.: Switch Rack B)" required />
-          <button type="submit" class="btn btn-primary">Adicionar Nó</button>
-        </form>
-      </section>
-
-      <section class="panel">
-        <h2>Adicionar Fibra</h2>
-        <form id="form-link" class="form-stack">
-          <div class="form-row-2">
-            <input id="link-id" type="text" placeholder="ID (ex.: F16)" required />
-            <input id="link-cap" type="number" min="0" step="1" placeholder="Capacidade (Gbps)" required />
-          </div>
-          <div class="form-row-2">
-            <select id="link-source" required></select>
-            <select id="link-target" required></select>
-          </div>
-          <button type="submit" class="btn btn-primary">Adicionar Fibra</button>
-        </form>
-      </section>
-    </aside>
+        <h2>Dispositivos</h2><ul id="nodes" class="inventory"></ul>
+        <h2>Fibras</h2><ul id="links" class="inventory"></ul>
+        <div class="actions"><button id="reference" type="button">Salvar fluxo atual como referência</button><button id="reset" type="button">Restaurar cenário inicial</button></div>
+      </details>
+    </fieldset>
+    <footer>Teoria dos Grafos · Ford–Fulkerson · Rede dirigida</footer>
   </main>
-
-  <section class="bottom-grid">
-    <section class="panel">
-      <h2>Dispositivos (<span id="count-nodes">0</span>)</h2>
-      <div class="table-box">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Dispositivo</th>
-              <th>Setor</th>
-              <th>Papel</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="tbody-nodes"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Fibras Ópticas (<span id="count-links">0</span>)</h2>
-      <div class="table-box">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Ligação</th>
-              <th>Fluxo / Cap.</th>
-              <th>Estado</th>
-              <th>Corte</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="tbody-links"></tbody>
-        </table>
-      </div>
-    </section>
-  </section>
-
-  <script src="app.js"></script>
+  <dialog id="capacity-dialog" aria-labelledby="capacity-title">
+    <form id="edit-capacity">
+      <h2 id="capacity-title">Editar capacidade</h2>
+      <label>Capacidade (Gbps)<input name="capacity" type="number" min="0" step="any" required></label>
+      <div class="actions"><button id="cancel-capacity" type="button">Cancelar</button><button class="primary">Salvar</button></div>
+    </form>
+  </dialog>
 </body>
 </html>
