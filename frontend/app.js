@@ -1,470 +1,216 @@
-const API_URL = "http://localhost:3000/api";
-const SVG_NS = "http://www.w3.org/2000/svg";
+﻿import { fiberLabels, fiberState, flowPaths, format } from "./flow.js";
+import { drawGraph } from "./graph.js";
 
-const DEFAULT_POSITIONS = {
-  D1: { x: 85, y: 205 },
-  D2: { x: 255, y: 85 },
-  D3: { x: 255, y: 205 },
-  D4: { x: 255, y: 325 },
-  D5: { x: 470, y: 185 },
-  D6: { x: 470, y: 75 },
-  D7: { x: 470, y: 310 },
-  D8: { x: 650, y: 125 },
-  D9: { x: 660, y: 295 },
-  D10: { x: 815, y: 205 }
+const API = window.OPTIC_API_URL || "http://localhost:3000/api";
+const byId = id => document.getElementById(id);
+const workspace = byId("workspace");
+const dialog = byId("capacity-dialog");
+const capacityForm = byId("edit-capacity");
+const linkUrl = id => `/links/${encodeURIComponent(id)}`;
+const connection = link => `${link.source} → ${link.target}`;
+
+let state;
+let busy = false;
+let selectedFiber;
+let selectedPath;
+let editingFiber;
+let edges;
+
+function status(message, error = false) {
+  byId("status").textContent = message;
+  byId("status").classList.toggle("error", error);
+}
+
+// Toda edição devolve o estado completo, então os indicadores e o mapa
+// sempre são atualizados juntos a partir da mesma resposta.
+async function request(path, method = "GET", body, message = "") {
+  if (busy) return false;
+  busy = true;
+  byId("reload").disabled = true;
+  workspace.setAttribute("aria-busy", "true");
+  status("Atualizando rede…");
+  try {
+    const response = await fetch(API + path, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const next = await response.json();
+    if (!response.ok) throw new Error(next.error || `Erro HTTP ${response.status}`);
+    state = next;
+    if (method !== "GET") selectedPath = undefined;
+    render();
+    byId("connection").textContent = "API conectada";
+    status(message);
+    return true;
+  } catch (error) {
+    if (error instanceof TypeError) byId("connection").textContent = "API indisponível";
+    status(error instanceof TypeError ? `Confira se o back-end está rodando em ${API} e recarregue os dados.` : error.message, true);
+    return false;
+  } finally {
+    busy = false;
+    byId("reload").disabled = false;
+    workspace.disabled = !state;
+    workspace.removeAttribute("aria-busy");
+  }
+}
+
+function button(label, action, className = "") {
+  const control = document.createElement("button");
+  control.type = "button";
+  control.textContent = label;
+  control.className = className;
+  control.addEventListener("click", action);
+  return control;
+}
+
+function options(id, values, selected, label) {
+  const select = byId(id);
+  select.replaceChildren(...values.map(value => new Option(label(value), value.id)));
+  if (values.some(value => value.id === selected)) select.value = selected;
+}
+
+function highlight() {
+  for (const [id, edge] of edges) {
+    edge.classList.toggle("muted", Boolean(selectedPath && !selectedPath.links.includes(id) && selectedFiber !== id));
+    edge.classList.toggle("selected", selectedFiber === id);
+    edge.setAttribute("aria-pressed", selectedFiber === id);
+  }
+}
+
+function selectFiber(id) {
+  selectedFiber = id;
+  const link = state.links.find(item => item.id === id);
+  byId("fiber-select").value = id ?? "";
+  byId("fiber-status").textContent = link
+    ? `${fiberLabels[fiberState(link)]} · ${format(link.flow)} / ${format(link.capacity)} Gbps`
+    : "Nenhuma fibra selecionada.";
+  byId("toggle").hidden = !link;
+  if (link) byId("toggle").textContent = link.active ? "Romper fibra" : "Restaurar fibra";
+  highlight();
+}
+
+function renderPaths() {
+  const list = byId("paths");
+  const paths = flowPaths(state);
+  selectedPath = paths.find(path => JSON.stringify(path.links) === JSON.stringify(selectedPath?.links));
+  list.replaceChildren(...paths.map(path => {
+    const control = button(`${path.nodes.join(" → ")} · ${format(path.amount)} Gbps`, () => {
+      selectedPath = selectedPath === path ? undefined : path;
+      for (const item of list.children) item.setAttribute("aria-pressed", item === control && Boolean(selectedPath));
+      highlight();
+    });
+    control.setAttribute("aria-pressed", selectedPath === path);
+    return control;
+  }));
+  if (!paths.length) list.textContent = "Nenhum caminho transporta fluxo neste trajeto.";
+}
+
+function inventoryItem(label, ...actions) {
+  const row = document.createElement("li");
+  const text = document.createElement("span");
+  text.textContent = label;
+  row.append(text, ...actions);
+  return row;
+}
+
+function remove(path, label) {
+  if (!busy && confirm(`Remover ${label}?`)) request(path, "DELETE", undefined, "Rede atualizada.");
+}
+
+function renderInventory() {
+  byId("nodes").replaceChildren(...state.nodes.map(node => {
+    const label = [node.id, node.name, node.sector].filter(Boolean).join(" · ");
+    if ([state.source, state.sink].includes(node.id)) {
+      return inventoryItem(`${label} · ${node.id === state.source ? "Origem" : "Destino"}`);
+    }
+    return inventoryItem(label, button("Remover", () => remove(`/nodes/${encodeURIComponent(node.id)}`, `${node.id} e suas fibras`)));
+  }));
+  byId("links").replaceChildren(...state.links.map(link => inventoryItem(
+    `${link.id} · ${connection(link)} · ${format(link.capacity)} Gbps`,
+    button("Capacidade", () => {
+      if (busy) return;
+      editingFiber = link.id;
+      byId("capacity-title").textContent = `Capacidade de ${link.id}`;
+      capacityForm.elements.capacity.value = link.capacity;
+      dialog.showModal();
+    }),
+    button("Remover", () => remove(linkUrl(link.id), link.id))
+  )));
+}
+
+function render() {
+  const { nodes, links, source, sink, currentMaxFlow, baselineMaxFlow, minCutCapacity, minCutLinks } = state;
+  byId("flow").textContent = format(currentMaxFlow);
+  byId("trajectory").textContent = `${source} → ${sink}`;
+  byId("baseline").textContent = format(baselineMaxFlow);
+  byId("comparison").textContent = baselineMaxFlow > 0 ? `${state.resiliencePct}% da referência no cenário atual` : "Referência igual a zero";
+  byId("cut-capacity").textContent = format(minCutCapacity);
+  byId("cut-count").textContent = `${minCutLinks.length} ${minCutLinks.length === 1 ? "fibra no corte" : "fibras no corte"}`;
+  byId("counts").textContent = `${nodes.length} dispositivos · ${links.length} fibras`;
+
+  const deviceLabel = node => `${node.id} · ${node.name}`;
+  options("source", nodes, source, deviceLabel);
+  options("sink", nodes, sink, deviceLabel);
+  options("link-source", nodes, byId("link-source").value || source, deviceLabel);
+  options("link-target", nodes, byId("link-target").value || sink, deviceLabel);
+  options("fiber-select", links, selectedFiber, link => `${link.id} · ${connection(link)}`);
+  byId("fiber-select").prepend(new Option("Selecione uma fibra", ""));
+  edges = drawGraph(byId("graph"), state, selectFiber);
+  renderPaths();
+  selectFiber(edges.has(selectedFiber) ? selectedFiber : undefined);
+
+  const cutList = byId("cut-links");
+  cutList.replaceChildren(...minCutLinks.map(link =>
+    button(`${link.id} · ${connection(link)} · ${format(link.capacity)} Gbps`, () => selectFiber(link.id), "cut-item")
+  ));
+  if (!minCutLinks.length) cutList.textContent = "Nenhuma fibra ativa cruza o corte.";
+  renderInventory();
+}
+
+function onSubmit(id, action) {
+  byId(id).addEventListener("submit", event => {
+    event.preventDefault();
+    if (!busy) action(Object.fromEntries(new FormData(event.currentTarget)), event.currentTarget);
+  });
+}
+
+onSubmit("endpoints", data => {
+  if (data.source === data.sink) return status("Escolha dispositivos diferentes para a origem e o destino.", true);
+  request("/endpoints", "PATCH", data, "Trajeto atualizado.");
+});
+onSubmit("add-node", async (data, form) => {
+  if (await request("/nodes", "POST", { ...data, role: "switch" }, "Dispositivo adicionado.")) form.reset();
+});
+onSubmit("add-link", async (data, form) => {
+  if (data.source === data.target) return status("Uma fibra precisa conectar dispositivos diferentes.", true);
+  if (await request("/links", "POST", data, "Fibra adicionada.")) {
+    form.reset();
+    byId("link-source").value = data.source;
+    byId("link-target").value = data.target;
+  }
+});
+onSubmit("edit-capacity", async data => {
+  const input = capacityForm.elements.capacity;
+  input.setCustomValidity("");
+  const saved = await request(linkUrl(editingFiber) + "/capacity", "PATCH", data, "Capacidade atualizada.");
+  if (saved) dialog.close();
+  else if (dialog.open) {
+    input.setCustomValidity(byId("status").textContent);
+    input.reportValidity();
+  }
+});
+capacityForm.elements.capacity.addEventListener("input", event => event.target.setCustomValidity(""));
+dialog.addEventListener("close", () => capacityForm.elements.capacity.setCustomValidity(""));
+byId("cancel-capacity").onclick = () => dialog.close();
+byId("fiber-select").onchange = event => selectFiber(event.target.value);
+byId("toggle").onclick = () => request(linkUrl(selectedFiber) + "/toggle", "POST", undefined, "Fibra atualizada. Fluxo e corte recalculados.");
+byId("restore").onclick = () => request("/reset-fibers", "POST", undefined, "Todas as fibras foram restauradas.");
+byId("reference").onclick = () => request("/recalculate-baseline", "POST", undefined, "Referência atualizada.");
+byId("reset").onclick = () => {
+  if (!busy && confirm("Restaurar o cenário inicial e descartar as alterações da topologia?")) {
+    request("/reset-seed", "POST", undefined, "Cenário inicial restaurado.");
+  }
 };
-
-const nodeCoords = new Map();
-let latestState = null;
-let activeDragId = null;
-
-function notify(text, isError = false) {
-  const el = document.getElementById("status-msg");
-  el.textContent = text;
-  el.classList.toggle("error", isError);
-}
-
-async function callApi(endpoint, method = "GET", payload = null) {
-  const options = {
-    method,
-    headers: { "Content-Type": "application/json" }
-  };
-  if (payload !== null) {
-    options.body = JSON.stringify(payload);
-  }
-  const response = await fetch(`${API_URL}${endpoint}`, options);
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Erro ao comunicar com o servidor.");
-  }
-  return data;
-}
-
-function syncCoords(nodes) {
-  const ids = new Set(nodes.map((n) => n.id));
-  for (const existing of nodeCoords.keys()) {
-    if (!ids.has(existing)) {
-      nodeCoords.delete(existing);
-    }
-  }
-
-  nodes.forEach((node, idx) => {
-    if (nodeCoords.has(node.id)) return;
-    if (DEFAULT_POSITIONS[node.id]) {
-      nodeCoords.set(node.id, { ...DEFAULT_POSITIONS[node.id] });
-    } else {
-      const col = idx % 4;
-      const row = Math.floor(idx / 4);
-      nodeCoords.set(node.id, {
-        x: 180 + col * 165,
-        y: 80 + row * 105
-      });
-    }
-  });
-}
-
-function svgEl(tag, attrs = {}) {
-  const el = document.createElementNS(SVG_NS, tag);
-  for (const [key, val] of Object.entries(attrs)) {
-    el.setAttribute(key, String(val));
-  }
-  return el;
-}
-
-function pointerToSvg(svg, clientX, clientY) {
-  const rect = svg.getBoundingClientRect();
-  const vb = svg.viewBox.baseVal;
-  return {
-    x: Math.max(42, Math.min(vb.width - 42, ((clientX - rect.left) / rect.width) * vb.width)),
-    y: Math.max(32, Math.min(vb.height - 36, ((clientY - rect.top) / rect.height) * vb.height))
-  };
-}
-
-function drawGraph(state) {
-  const svg = document.getElementById("graph-svg");
-  svg.innerHTML = "";
-
-  const defs = svgEl("defs");
-  const marker = svgEl("marker", {
-    id: "fiber-arrow",
-    viewBox: "0 0 10 10",
-    refX: "22",
-    refY: "5",
-    markerWidth: "5.5",
-    markerHeight: "5.5",
-    orient: "auto-start-reverse"
-  });
-  marker.appendChild(svgEl("path", { d: "M 0 1.5 L 10 5 L 0 8.5 z", fill: "#64748b" }));
-  defs.appendChild(marker);
-  svg.appendChild(defs);
-
-  // Arestas (fibras ópticas)
-  for (const link of state.links) {
-    const a = nodeCoords.get(link.source);
-    const b = nodeCoords.get(link.target);
-    if (!a || !b) continue;
-
-    let color = "#38bdf8";
-    let width = Math.max(1.8, Math.min(4.2, link.capacity / 16));
-    let dash = "none";
-
-    if (!link.active) {
-      color = "#ef4444";
-      width = 1.8;
-      dash = "5 4";
-    } else if (link.inMinCut) {
-      color = "#eab308";
-      width = Math.max(2.6, width);
-    } else if (link.flow > 0) {
-      color = "#22c55e";
-    }
-
-    const group = svgEl("g", { class: "edge-hit" });
-    group.addEventListener("click", () => toggleFiber(link.id));
-
-    group.appendChild(
-      svgEl("line", {
-        x1: a.x,
-        y1: a.y,
-        x2: b.x,
-        y2: b.y,
-        stroke: "transparent",
-        "stroke-width": 14
-      })
-    );
-
-    group.appendChild(
-      svgEl("line", {
-        x1: a.x,
-        y1: a.y,
-        x2: b.x,
-        y2: b.y,
-        stroke: color,
-        "stroke-width": width,
-        "stroke-dasharray": dash,
-        "marker-end": "url(#fiber-arrow)"
-      })
-    );
-
-    const mx = (a.x + b.x) / 2;
-    const my = (a.y + b.y) / 2;
-    const tag = !link.active
-      ? `${link.id} · OFF`
-      : `${link.id} ${link.flow}/${link.capacity}G${link.inMinCut ? " · CORTE" : ""}`;
-
-    const pillW = Math.max(54, tag.length * 6.2 + 10);
-    const pillH = 16;
-
-    group.appendChild(
-      svgEl("rect", {
-        x: mx - pillW / 2,
-        y: my - pillH / 2,
-        width: pillW,
-        height: pillH,
-        rx: 4,
-        class: "edge-label-bg",
-        stroke: !link.active ? "#ef4444" : link.inMinCut ? "#eab308" : "#334566"
-      })
-    );
-
-    const label = svgEl("text", {
-      x: mx,
-      y: my,
-      class: "edge-label-text"
-    });
-    label.textContent = tag;
-    group.appendChild(label);
-
-    svg.appendChild(group);
-  }
-
-  // Vértices (dispositivos)
-  for (const node of state.nodes) {
-    const pos = nodeCoords.get(node.id);
-    if (!pos) continue;
-
-    const isSource = node.id === state.source;
-    const isSink = node.id === state.sink;
-
-    let fill = "#1e3a5f";
-    let stroke = "#60a5fa";
-    if (isSource) {
-      fill = "#0e4a6e";
-      stroke = "#38bdf8";
-    } else if (isSink) {
-      fill = "#14532d";
-      stroke = "#4ade80";
-    }
-
-    const g = svgEl("g", { class: "node-hit" });
-    g.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      activeDragId = node.id;
-      g.setPointerCapture(e.pointerId);
-    });
-
-    g.addEventListener("pointermove", (e) => {
-      if (activeDragId !== node.id) return;
-      nodeCoords.set(node.id, pointerToSvg(svg, e.clientX, e.clientY));
-      drawGraph(latestState);
-    });
-
-    g.addEventListener("pointerup", () => {
-      activeDragId = null;
-    });
-
-    g.appendChild(
-      svgEl("circle", {
-        cx: pos.x,
-        cy: pos.y,
-        r: 17,
-        fill,
-        stroke,
-        "stroke-width": 2
-      })
-    );
-
-    const idTxt = svgEl("text", {
-      x: pos.x,
-      y: pos.y,
-      class: "node-id-text"
-    });
-    idTxt.textContent = node.id;
-    g.appendChild(idTxt);
-
-    const capTxt = svgEl("text", {
-      x: pos.x,
-      y: pos.y + 27,
-      class: "node-caption-text"
-    });
-    const suffix = isSource ? " [S]" : isSink ? " [T]" : "";
-    capTxt.textContent = `${node.name}${suffix}`;
-    g.appendChild(capTxt);
-
-    svg.appendChild(g);
-  }
-}
-
-function renderAll(state) {
-  latestState = state;
-  syncCoords(state.nodes);
-
-  document.getElementById("m-flow").textContent = `${state.currentMaxFlow} Gbps`;
-  document.getElementById("m-baseline").textContent = `${state.baselineMaxFlow} Gbps`;
-  document.getElementById("m-resilience").textContent = `${state.resiliencePct}%`;
-  document.getElementById("m-mincut").textContent = `${state.minCutCapacity} Gbps`;
-
-  document.getElementById("count-nodes").textContent = state.totalDevices;
-  document.getElementById("count-links").textContent = state.totalLinks;
-
-  const options = state.nodes
-    .map((n) => `<option value="${n.id}">${n.id} — ${n.name}</option>`)
-    .join("");
-
-  const selSource = document.getElementById("sel-source");
-  const selSink = document.getElementById("sel-sink");
-  const linkSource = document.getElementById("link-source");
-  const linkTarget = document.getElementById("link-target");
-
-  selSource.innerHTML = options;
-  selSink.innerHTML = options;
-  linkSource.innerHTML = options;
-  linkTarget.innerHTML = options;
-
-  selSource.value = state.source;
-  selSink.value = state.sink;
-
-  document.getElementById("tbody-nodes").innerHTML = state.nodes
-    .map((n) => {
-      const role =
-        n.id === state.source ? "Origem (S)" : n.id === state.sink ? "Destino (T)" : n.role;
-      const removable = n.id !== state.source && n.id !== state.sink;
-      return `
-        <tr>
-          <td><strong>${n.id}</strong></td>
-          <td>${n.name}</td>
-          <td>${n.sector || "-"}</td>
-          <td>${role}</td>
-          <td>
-            ${
-              removable
-                ? `<button type="button" class="btn btn-danger btn-xs" data-del-node="${n.id}">Remover</button>`
-                : "-"
-            }
-          </td>
-        </tr>
-      `;
-    })
-    .join("");
-
-  document.getElementById("tbody-links").innerHTML = state.links
-    .map((l) => {
-      const statusPill = l.active
-        ? `<span class="pill pill-ok">Ativa</span>`
-        : `<span class="pill pill-broken">Rompida</span>`;
-      const cutPill = l.inMinCut
-        ? `<span class="pill pill-cut">Sim (${l.capacity}G)</span>`
-        : "Não";
-
-      return `
-        <tr>
-          <td><strong>${l.id}</strong></td>
-          <td>${l.source} → ${l.target}</td>
-          <td>${l.flow} / ${l.capacity} Gbps</td>
-          <td>${statusPill}</td>
-          <td>${cutPill}</td>
-          <td class="actions-cell">
-            <button type="button" class="btn btn-secondary btn-xs" data-toggle-link="${l.id}">
-              ${l.active ? "Romper" : "Restaurar"}
-            </button>
-            <button type="button" class="btn btn-ghost btn-xs" data-cap-link="${l.id}">Cap.</button>
-            <button type="button" class="btn btn-danger btn-xs" data-del-link="${l.id}">Excluir</button>
-          </td>
-        </tr>
-      `;
-    })
-    .join("");
-
-  drawGraph(state);
-}
-
-async function toggleFiber(linkId) {
-  try {
-    const state = await callApi(`/links/${encodeURIComponent(linkId)}/toggle`, "POST");
-    renderAll(state);
-    notify(`Fibra ${linkId} atualizada.`);
-  } catch (err) {
-    notify(err.message, true);
-  }
-}
-
-async function boot() {
-  try {
-    const state = await callApi("/state");
-    renderAll(state);
-    notify("Rede sincronizada com o back-end.");
-  } catch (err) {
-    notify(`Erro de conexão com o back-end: ${err.message}`, true);
-  }
-}
-
-document.getElementById("form-endpoints").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  try {
-    const source = document.getElementById("sel-source").value;
-    const sink = document.getElementById("sel-sink").value;
-    const state = await callApi("/endpoints", "PATCH", { source, sink });
-    renderAll(state);
-    notify(`Origem/Destino definidos para ${source} → ${sink}.`);
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-document.getElementById("btn-recalc-base").addEventListener("click", async () => {
-  try {
-    const state = await callApi("/recalculate-baseline", "POST");
-    renderAll(state);
-    notify("Fluxo nominal base atualizado.");
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-document.getElementById("form-node").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  try {
-    const id = document.getElementById("node-id").value.trim();
-    const name = document.getElementById("node-name").value.trim();
-    const sector = document.getElementById("node-sector").value.trim();
-    const state = await callApi("/nodes", "POST", { id, name, sector, role: "switch" });
-    renderAll(state);
-    e.target.reset();
-    notify(`Dispositivo ${id} adicionado.`);
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-document.getElementById("form-link").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  try {
-    const id = document.getElementById("link-id").value.trim();
-    const source = document.getElementById("link-source").value;
-    const target = document.getElementById("link-target").value;
-    const capacity = Number(document.getElementById("link-cap").value);
-    const state = await callApi("/links", "POST", { id, source, target, capacity });
-    renderAll(state);
-    e.target.reset();
-    notify(`Fibra ${id} adicionada.`);
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-document.getElementById("tbody-nodes").addEventListener("click", async (e) => {
-  const nodeId = e.target.getAttribute("data-del-node");
-  if (!nodeId) return;
-  try {
-    const state = await callApi(`/nodes/${encodeURIComponent(nodeId)}`, "DELETE");
-    renderAll(state);
-    notify(`Dispositivo ${nodeId} removido.`);
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-document.getElementById("tbody-links").addEventListener("click", async (e) => {
-  const toggleId = e.target.getAttribute("data-toggle-link");
-  const capId = e.target.getAttribute("data-cap-link");
-  const delId = e.target.getAttribute("data-del-link");
-
-  try {
-    if (toggleId) {
-      await toggleFiber(toggleId);
-    } else if (capId) {
-      const current = latestState?.links.find((item) => item.id === capId);
-      const val = prompt(
-        `Nova capacidade em Gbps para ${capId}:`,
-        current ? String(current.capacity) : "20"
-      );
-      if (val === null) return;
-      const capacity = Number(val);
-      const state = await callApi(
-        `/links/${encodeURIComponent(capId)}/capacity`,
-        "PATCH",
-        { capacity }
-      );
-      renderAll(state);
-      notify(`Capacidade de ${capId} alterada para ${capacity} Gbps.`);
-    } else if (delId) {
-      const state = await callApi(`/links/${encodeURIComponent(delId)}`, "DELETE");
-      renderAll(state);
-      notify(`Fibra ${delId} excluída.`);
-    }
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-document.getElementById("btn-reset-fibers").addEventListener("click", async () => {
-  try {
-    const state = await callApi("/reset-fibers", "POST");
-    renderAll(state);
-    notify("Todas as fibras restauradas.");
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-document.getElementById("btn-reset-seed").addEventListener("click", async () => {
-  try {
-    const state = await callApi("/reset-seed", "POST");
-    renderAll(state);
-    notify("Topologia inicial restaurada.");
-  } catch (err) {
-    notify(err.message, true);
-  }
-});
-
-boot();
+byId("reload").onclick = () => request("/state");
+request("/state");

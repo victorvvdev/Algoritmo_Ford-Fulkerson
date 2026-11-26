@@ -1,0 +1,10 @@
+{
+  "name": "optic-network-sim-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interface web do OpticNetworkSim, servida com Node.js sem dependências externas.",
+  "scripts": {
+    "start": "node server.cjs"
+  }
+}
